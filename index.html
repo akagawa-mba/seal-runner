@@ -94,19 +94,32 @@
     user-select: none; -webkit-user-select: none;
     touch-action: none; -webkit-tap-highlight-color: transparent;
   }
+  /* 右側全体がジャンプゾーン(どこをタップしてもジャンプ。円は目印) */
+  #jump-zone {
+    position: absolute; right: 0; top: 0; bottom: 0;
+    width: 42%;
+    touch-action: none; -webkit-tap-highlight-color: transparent;
+  }
   #tc-jump  {
     right: 22px; width: 96px; height: 96px;
     font-size: 17px; font-weight: bold; letter-spacing: 1px;
-    background: rgba(231, 111, 81, .6);
+    background: rgba(231, 111, 81, .45);
+    pointer-events: none;   /* 目印のみ。入力はゾーン全体で受ける */
   }
-  #tc-jump:active { background: rgba(231, 111, 81, .85); }
+  #jump-zone:active #tc-jump { background: rgba(231, 111, 81, .8); }
+  /* ダッシュ:タップでON/OFFのトグル。誤タップしにくいよう上寄りに配置 */
   #tc-dash {
-    right: 32px; bottom: 138px;
-    width: 76px; height: 76px;
-    font-size: 14px; font-weight: bold;
-    background: rgba(46, 134, 171, .55);
+    right: 26px; bottom: 190px;
+    width: 70px; height: 70px;
+    font-size: 13px; font-weight: bold;
+    background: rgba(46, 134, 171, .45);
+    transition: background-color .15s, box-shadow .15s;
   }
-  #tc-dash:active { background: rgba(46, 134, 171, .85); }
+  #tc-dash.on {
+    background: rgba(231, 111, 81, .85);
+    box-shadow: 0 0 16px rgba(231, 111, 81, .8);
+    border-color: #fff;
+  }
 
   /* 仮想ジョイスティック:画面左側のどこでもタッチした場所に出現する */
   #joy-zone {
@@ -188,14 +201,16 @@
     <div id="boost-bar"><div id="boost-fill"></div></div>
   </div>
   <div id="bonus">+50</div>
-  <div id="hint">マウス移動:左右 / クリック:ジャンプ(長押しで大ジャンプ)/ 右クリック:ダッシュ</div>
+  <div id="hint">マウス移動:左右 / クリック:ジャンプ(長押しで大)/ 右クリック:ダッシュ切替</div>
 
   <div id="touch-controls">
     <div id="joy-zone">
       <div id="joy-base"><div id="joy-knob"></div></div>
     </div>
+    <div id="jump-zone">
+      <div class="tc-btn" id="tc-jump">ジャンプ</div>
+    </div>
     <div class="tc-btn" id="tc-dash">ダッシュ</div>
-    <div class="tc-btn" id="tc-jump">ジャンプ</div>
   </div>
 
   <div id="start-screen" class="overlay">
@@ -938,7 +953,7 @@
   let dieTime = 0;
   let jumpHeld = false;     // ジャンプボタン押下中か
   let jumpHoldTime = 0;     // 今回のジャンプで長押しが効いた時間
-  let boostHeld = false;    // ダッシュボタン押下中か
+  let boostHeld = false;    // ダッシュ要求(トグル式: タップ/キーで ON/OFF、ガス欠で自動OFF)
   let boostGauge = BOOST_MAX;
   let boostBlocked = false; // ガス欠中(一定量回復するまで再使用不可)
   let boostActive = false;  // 今フレーム加速しているか
@@ -973,6 +988,8 @@
     boostGauge = BOOST_MAX;
     boostBlocked = false;
     boostActive = false;
+    boostHeld = false;
+    updateDashButton();
     runPhaseAcc = 0;
     seal.position.set(0, GROUND_Y, 4);
     seal.rotation.x = 0;
@@ -1099,13 +1116,26 @@
   }
 
   // ---------- 入力 ----------
+  // ダッシュのトグル切り替え(誤操作防止の0.2秒クールタイム付き)
+  let lastBoostToggle = 0;
+  function toggleBoost() {
+    const now = performance.now();
+    if (now - lastBoostToggle < 200) return;
+    lastBoostToggle = now;
+    boostHeld = !boostHeld;
+    updateDashButton();
+  }
+  function updateDashButton() {
+    tcDashEl.classList.toggle('on', boostHeld);
+  }
+
   addEventListener('keydown', e => {
     if (e.target && e.target.tagName === 'INPUT') return;   // 名前入力中はゲーム操作を無効化
     if (e.code === 'ArrowLeft')  { e.preventDefault(); keys.left = true; }
     if (e.code === 'ArrowRight') { e.preventDefault(); keys.right = true; }
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'ArrowDown') {
       e.preventDefault();
-      boostHeld = true;
+      if (!e.repeat) toggleBoost();          // 押すたびにON/OFF切り替え
     }
     if (e.code === 'Space' || e.code === 'ArrowUp') {
       e.preventDefault();
@@ -1118,12 +1148,11 @@
   addEventListener('keyup', e => {
     if (e.code === 'ArrowLeft')  keys.left = false;
     if (e.code === 'ArrowRight') keys.right = false;
-    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'ArrowDown') boostHeld = false;
     if (e.code === 'Space' || e.code === 'ArrowUp') jumpHeld = false;
   });
   // マウス入力は mousedown/mouseup で処理する。
   // pointerdown は「2つ目以降のボタン」では発火しない仕様のため、
-  // 右ボタン(ダッシュ)を押したまま左クリック(ジャンプ)ができなかった。
+  // 右ボタンを押したまま左クリック(ジャンプ)ができなかった。
   // mousedown はボタンごとに発火するのでこの問題がない。
   let lastTouchTime = 0;   // タッチ後に発生する互換マウスイベントを無視するため
   renderer.domElement.addEventListener('pointerdown', e => {
@@ -1131,8 +1160,8 @@
   });
   renderer.domElement.addEventListener('mousedown', e => {
     if (performance.now() - lastTouchTime < 800) return;  // タッチ由来の互換イベントは無視
-    if (e.button === 2) {                    // 右ボタン:ダッシュ
-      boostHeld = true;
+    if (e.button === 2) {                    // 右クリック:ダッシュ切り替え
+      toggleBoost();
     } else if (e.button === 0) {             // 左ボタン:ジャンプ
       jumpHeld = true;
       jump();
@@ -1140,29 +1169,33 @@
   });
   renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());  // 右クリックメニュー抑止
   addEventListener('mouseup', e => {
-    if (e.button === 2) boostHeld = false;
     if (e.button === 0) jumpHeld = false;
   });
-  addEventListener('pointercancel', () => { jumpHeld = false; boostHeld = false; });
+  addEventListener('pointercancel', () => { jumpHeld = false; });
   document.getElementById('start-btn').addEventListener('click', startGame);
   document.getElementById('retry-btn').addEventListener('click', startGame);
 
-  // タッチデバイス用の操作ボタン(押している間だけ有効。既存のkeys/jumpHeldを共用)
-  function bindHoldButton(el, onDown, onUp) {
-    el.addEventListener('pointerdown', e => {
-      e.preventDefault();
-      el.setPointerCapture(e.pointerId);
-      onDown();
-    });
-    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev =>
-      el.addEventListener(ev, onUp)
-    );
-    el.addEventListener('contextmenu', e => e.preventDefault());  // 長押しメニュー抑止
-  }
-  bindHoldButton(document.getElementById('tc-jump'),
-    () => { jumpHeld = true; jump(); }, () => { jumpHeld = false; });
-  bindHoldButton(document.getElementById('tc-dash'),
-    () => { boostHeld = true; }, () => { boostHeld = false; });
+  // タッチ用:右側の広いゾーン全体がジャンプ入力(どこをタップしてもよい)
+  const jumpZone = document.getElementById('jump-zone');
+  const tcDashEl = document.getElementById('tc-dash');
+  jumpZone.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    jumpZone.setPointerCapture(e.pointerId);
+    jumpHeld = true;
+    jump();
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev =>
+    jumpZone.addEventListener(ev, () => { jumpHeld = false; })
+  );
+  jumpZone.addEventListener('contextmenu', e => e.preventDefault());
+
+  // タッチ用:ダッシュはタップでON/OFF切り替え
+  tcDashEl.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    e.stopPropagation();   // 下のジャンプゾーンに伝えない
+    toggleBoost();
+  });
+  tcDashEl.addEventListener('contextmenu', e => e.preventDefault());
 
   // 仮想ジョイスティック:左エリアをタッチした場所にスティックが出現し、
   // 横に倒した量(-1〜1)に応じて移動する(アナログ入力)
@@ -1209,7 +1242,7 @@
 
   // タッチデバイスでは案内文を差し替える
   if (matchMedia('(pointer: coarse)').matches) {
-    document.getElementById('hint').textContent = '左エリアをドラッグ:移動 / ジャンプ:長押しで大 / ダッシュ:スコア2倍';
+    document.getElementById('hint').textContent = '左:ドラッグで移動 / 右:タップでジャンプ / ダッシュ:タップで切替';
   }
 
   // マウス操作:ポインターの位置(地面上のX座標)に向かってアザラシが移動する
@@ -1271,6 +1304,8 @@
           boostGauge = 0;
           boostBlocked = true;             // 使い切ったら一定量回復するまで不可
           boostActive = false;
+          boostHeld = false;               // トグルも自動OFF(再使用は改めてタップ)
+          updateDashButton();
         }
       } else {
         boostGauge = Math.min(BOOST_MAX, boostGauge + BOOST_RECOVERY * dt);
