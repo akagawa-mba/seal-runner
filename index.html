@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>あしながアザラシ・ラン 〜南極編〜</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif; }
+  #game-container { position: relative; width: 100%; height: 100%; }
+  canvas { display: block; }
+
+  #hud {
+    position: absolute; top: 18px; left: 22px;
+    color: #16435e; font-size: 28px; font-weight: bold;
+    text-shadow: 0 2px 0 rgba(255,255,255,.8);
+    pointer-events: none; letter-spacing: 1px;
+  }
+  #hint {
+    position: absolute; bottom: 24px; width: 100%; text-align: center;
+    color: rgba(22,67,94,.75); font-size: 16px; pointer-events: none;
+    text-shadow: 0 1px 0 rgba(255,255,255,.7);
+  }
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    padding: 7vh 20px 20px;
+    background: linear-gradient(to bottom, rgba(228,242,250,.9) 0%, rgba(228,242,250,.45) 45%, rgba(228,242,250,0) 100%);
+    text-align: center;
+  }
+  .overlay h1 { color: #16435e; font-size: clamp(30px, 6vw, 52px); margin-bottom: 10px; text-shadow: 0 2px 0 rgba(255,255,255,.8); }
+  .overlay p  { color: #21597a; font-size: clamp(15px, 3vw, 19px); line-height: 1.8; margin-bottom: 22px; text-shadow: 0 1px 0 rgba(255,255,255,.7); }
+  .overlay .score-big { color: #e76f51; font-size: clamp(40px, 9vw, 72px); font-weight: bold; margin-bottom: 6px; text-shadow: 0 2px 0 rgba(255,255,255,.8); }
+  .overlay .score-label { color: #21597a; font-size: 16px; margin-bottom: 22px; }
+  .overlay button {
+    font-family: inherit; font-size: 20px; font-weight: bold;
+    color: #fff; background: #e76f51; border: none; border-radius: 999px;
+    padding: 14px 46px; cursor: pointer;
+    box-shadow: 0 6px 0 #c1543b; transition: transform .08s, box-shadow .08s;
+  }
+  .overlay button:active { transform: translateY(4px); box-shadow: 0 2px 0 #c1543b; }
+  .hidden { display: none !important; }
+
+  #bonus {
+    position: absolute; top: 58px; left: 22px;
+    color: #e76f51; font-size: 24px; font-weight: bold;
+    opacity: 0; pointer-events: none;
+    text-shadow: 0 1px 0 rgba(255,255,255,.8);
+  }
+  #bonus.pop { animation: bonusPop .8s ease-out; }
+  @keyframes bonusPop {
+    0%   { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-26px); }
+  }
+
+  /* ハイスコア登録・ランキング */
+  #hiscore-area {
+    width: min(340px, 86vw);
+    background: rgba(255,255,255,.82);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+    box-shadow: 0 4px 14px rgba(22,67,94,.12);
+  }
+  #submit-row { display: flex; gap: 8px; margin-bottom: 6px; }
+  #player-name {
+    flex: 1; min-width: 0;
+    font-family: inherit; font-size: 15px;
+    padding: 9px 12px;
+    border: 2px solid #bcd8e8; border-radius: 999px;
+    color: #16435e; background: #fff; outline: none;
+  }
+  #player-name:focus { border-color: #4f9fd0; }
+  #submit-score-btn {
+    font-family: inherit; font-size: 15px; font-weight: bold;
+    color: #fff; background: #2e86ab; border: none; border-radius: 999px;
+    padding: 9px 20px; cursor: pointer;
+    box-shadow: 0 3px 0 #1d5f7c;
+  }
+  #submit-score-btn:disabled { background: #9fb8c6; box-shadow: none; cursor: default; }
+  #submit-status { min-height: 18px; font-size: 13px; color: #2c6e8f; margin-bottom: 4px; }
+  #leaderboard {
+    list-style: none; text-align: left;
+    max-height: 32vh; overflow-y: auto;
+  }
+  #leaderboard li {
+    display: flex; justify-content: space-between; gap: 10px;
+    font-size: 15px; color: #16435e;
+    padding: 5px 6px; border-bottom: 1px dashed #cfe3f0;
+  }
+  #leaderboard li:first-child { color: #e76f51; font-weight: bold; }
+  #leaderboard li .lb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #leaderboard li .lb-score { font-weight: bold; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div id="hud">SCORE 0</div>
+  <div id="bonus">+50</div>
+  <div id="hint">マウス移動:左右 / クリック:ジャンプ(長押しで大ジャンプ)</div>
+
+  <div id="start-screen" class="overlay">
+    <h1>あしながアザラシ・ラン<br>〜南極編〜</h1>
+    <p>長い脚が生えてしまったアザラシが南極の氷原を爆走中。<br>氷塊や仲間のアザラシをよけて、魚を集めながら走り続けよう!</p>
+    <button id="start-btn">スタート</button>
+  </div>
+
+  <div id="gameover-screen" class="overlay hidden">
+    <h1>ゲームオーバー</h1>
+    <div class="score-big" id="final-score">0</div>
+    <div class="score-label">SCORE</div>
+    <div id="hiscore-area" class="hidden">
+      <div id="submit-row">
+        <input id="player-name" maxlength="12" placeholder="なまえ(12文字まで)" autocomplete="off">
+        <button id="submit-score-btn">登録</button>
+      </div>
+      <div id="submit-status"></div>
+      <ol id="leaderboard"></ol>
+    </div>
+    <button id="retry-btn">もう一度</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  // ========== ハイスコア設定(Supabase) ==========
+  // デプロイ時にここを書き換える。未設定のままでもゲームは動作する(ランキング非表示)。
+  // SUPABASE_URL: ダッシュボードの Settings > API > Project URL(例: 'https://xxxx.supabase.co')
+  // SUPABASE_PUBLISHABLE_KEY: Settings > API Keys > Publishable key('sb_publishable_...' 形式)
+  //   ※クライアント公開前提のキー。レガシーの anon キー('eyJ...' 形式)を貼っても動作する
+  const SUPABASE_URL = 'https://rlyqjzdlnnxobzbsmhcv.supabase.co';
+  const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_2o7HWIuWMp25VPZtHcX2DQ_YTSXDgdw';
+
+  const hiscoreEnabled = () => SUPABASE_URL !== '' && SUPABASE_PUBLISHABLE_KEY !== '';
+  const sbHeaders = () => {
+    const h = {
+      'apikey': SUPABASE_PUBLISHABLE_KEY,
+      'Content-Type': 'application/json'
+    };
+    // 新方式(sb_publishable_...)はapikeyヘッダーのみで送る。
+    // AuthorizationヘッダーにはJWT以外を入れると拒否されるため付けない。
+    // レガシーのanonキー(JWT形式)を使う場合のみ、従来どおりAuthorizationも付ける。
+    if (SUPABASE_PUBLISHABLE_KEY.startsWith('eyJ')) {
+      h['Authorization'] = 'Bearer ' + SUPABASE_PUBLISHABLE_KEY;
+    }
+    return h;
+  };
+
+  async function fetchLeaderboard() {
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/scores?select=name,score&order=score.desc&limit=10',
+      { headers: sbHeaders() }
+    );
+    if (!res.ok) throw new Error('fetch failed: ' + res.status);
+    return res.json();
+  }
+
+  async function submitScore(name, scoreValue) {
+    const res = await fetch(SUPABASE_URL + '/rest/v1/scores', {
+      method: 'POST',
+      headers: Object.assign(sbHeaders(), { 'Prefer': 'return=minimal' }),
+      body: JSON.stringify({ name: name, score: scoreValue })
+    });
+    if (!res.ok) throw new Error('submit failed: ' + res.status);
+  }
+  // ---------- 基本セットアップ ----------
+  const container = document.getElementById('game-container');
+  const hud = document.getElementById('hud');
+  const startScreen = document.getElementById('start-screen');
+  const gameoverScreen = document.getElementById('gameover-screen');
+  const finalScoreEl = document.getElementById('final-score');
+  const bonusEl = document.getElementById('bonus');
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xcfe7f4);
+  scene.fog = new THREE.Fog(0xcfe7f4, 35, 100);
+
+  // 後方上空からの見下ろしカメラ(前方の障害物が見やすい)
+  const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 200);
+  camera.position.set(0, 9.5, 14);
+  camera.lookAt(0, 0.3, -11);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // 質感向上:sRGB出力+フィルミックトーンマッピング
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  container.appendChild(renderer.domElement);
+
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  // ---------- ライト(南極の冷たい光) ----------
+  scene.add(new THREE.HemisphereLight(0xf4fbff, 0xa9c8da, 1.0));
+  const sun = new THREE.DirectionalLight(0xfff6e6, 1.6);
+  sun.position.set(10, 16, 8);
+  sun.castShadow = true;
+  sun.shadow.camera.left = -22; sun.shadow.camera.right = 22;
+  sun.shadow.camera.top = 22;   sun.shadow.camera.bottom = -22;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.bias = -0.0005;
+  sun.shadow.radius = 4;
+  scene.add(sun);
+  // 逆側からの淡い照り返し(氷面のリムライト)
+  const bounce = new THREE.DirectionalLight(0xbfe2f5, 0.5);
+  bounce.position.set(-8, 6, -10);
+  scene.add(bounce);
+
+  // ---------- 雪原と凍った海 ----------
+  // コース外には凹凸をつけ、雪面の起伏を表現する
+  const groundGeo = new THREE.PlaneGeometry(40, 220, 36, 90);
+  {
+    const p = groundGeo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i);
+      if (Math.abs(x) > 6.5) {
+        const n = Math.sin(x * 1.3) * Math.cos(y * 0.7) + Math.sin(x * 0.4 + y * 0.23) * 1.6;
+        p.setZ(i, Math.max(0, n) * 0.35 * Math.min(1, (Math.abs(x) - 6.5) / 4));
+      }
+    }
+    groundGeo.computeVertexNormals();
+  }
+  const snowGround = new THREE.Mesh(
+    groundGeo,
+    new THREE.MeshStandardMaterial({ color: 0xc4def2, roughness: 0.95, metalness: 0 })
+  );
+  snowGround.rotation.x = -Math.PI / 2;
+  snowGround.receiveShadow = true;
+  scene.add(snowGround);
+
+  [-1, 1].forEach(side => {
+    const sea = new THREE.Mesh(
+      new THREE.PlaneGeometry(100, 220),
+      new THREE.MeshStandardMaterial({ color: 0x2f6f92, roughness: 0.25, metalness: 0.1 })
+    );
+    sea.rotation.x = -Math.PI / 2;
+    sea.position.set(side * 70, -0.05, 0);
+    scene.add(sea);
+  });
+
+  // スクロール感を出す雪の縞模様
+  const stripes = [];
+  const stripeMat = new THREE.MeshStandardMaterial({ color: 0xa8cce8, roughness: 1 });
+  for (let i = 0; i < 14; i++) {
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(13, 0.7), stripeMat);
+    s.rotation.x = -Math.PI / 2;
+    s.position.set(0, 0.012, -i * 8);
+    scene.add(s);
+    stripes.push(s);
+  }
+
+  // 背景の氷山(フラットシェーディングで結晶感を出す)
+  const bergMat = new THREE.MeshStandardMaterial({ color: 0xe8f4fb, roughness: 0.6, flatShading: true });
+  const bergMat2 = new THREE.MeshStandardMaterial({ color: 0xc4e1f0, roughness: 0.55, flatShading: true });
+  for (let i = 0; i < 10; i++) {
+    const h = 4 + Math.random() * 9;
+    const berg = new THREE.Mesh(
+      new THREE.ConeGeometry(2.5 + Math.random() * 4, h, 5 + Math.floor(Math.random() * 3)),
+      Math.random() > 0.5 ? bergMat : bergMat2
+    );
+    const side = Math.random() > 0.5 ? 1 : -1;
+    berg.position.set(side * (16 + Math.random() * 22), h / 2 - 0.2, -30 - Math.random() * 50);
+    berg.rotation.y = Math.random() * Math.PI;
+    berg.castShadow = true;
+    scene.add(berg);
+  }
+
+  // 舞い散る雪
+  const snowCount = 300;
+  const snowGeo = new THREE.BufferGeometry();
+  const snowPos = new Float32Array(snowCount * 3);
+  for (let i = 0; i < snowCount; i++) {
+    snowPos[i * 3]     = (Math.random() - 0.5) * 60;
+    snowPos[i * 3 + 1] = Math.random() * 25;
+    snowPos[i * 3 + 2] = -60 + Math.random() * 80;
+  }
+  snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+  const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.18, transparent: true, opacity: 0.9
+  }));
+  scene.add(snow);
+
+  // ---------- 操作キャラ:あしながアザラシ(参考画像準拠) ----------
+  // 頭と胴がひとつながりの直立した雫型ボディ+細い長い脚
+  const sealSkinMat = new THREE.MeshStandardMaterial({ color: 0xf2f4f5, roughness: 0.55, metalness: 0 });
+  const legSkinMat  = new THREE.MeshStandardMaterial({ color: 0xe6e0d6, roughness: 0.6, metalness: 0 });
+  const darkMat     = new THREE.MeshStandardMaterial({ color: 0x2e3338, roughness: 0.4 });
+  const whiskerMat  = new THREE.MeshStandardMaterial({ color: 0x595f66, roughness: 0.6 });
+
+  const seal = new THREE.Group();
+  const sealBody = new THREE.Group(); // 体(脚以外)をまとめて上下にバウンドさせる
+  const BODY_BASE_Y = 1.8;            // 脚の上に乗る体の基準高さ
+
+  // 直立ボディ:回転体(Lathe)でなめらかな雫型シルエットを作る
+  // (裾はやや広めにして、脚の付け根を体の中に隠す)
+  const profile = [
+    new THREE.Vector2(0.00, 0.00),
+    new THREE.Vector2(0.50, 0.03),
+    new THREE.Vector2(0.68, 0.22),
+    new THREE.Vector2(0.78, 0.65),
+    new THREE.Vector2(0.80, 1.10),  // 腰まわりが一番ふくよか
+    new THREE.Vector2(0.74, 1.60),
+    new THREE.Vector2(0.66, 2.00),
+    new THREE.Vector2(0.66, 2.30),  // 頭(胴とひとつながり)
+    new THREE.Vector2(0.58, 2.62),
+    new THREE.Vector2(0.36, 2.86),
+    new THREE.Vector2(0.00, 2.96)
+  ];
+  const body = new THREE.Mesh(new THREE.LatheGeometry(profile, 40), sealSkinMat);
+  body.castShadow = true;
+  sealBody.add(body);
+
+  // 顔(正面=ローカル+z側。グループごと180度回すので進行方向を向く)
+  // 目:小さな黒い点
+  [-0.24, 0.24].forEach(x => {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), darkMat);
+    eye.position.set(x, 2.34, 0.585);
+    sealBody.add(eye);
+  });
+  // 眉のような短い点線
+  [-0.24, 0.24].forEach(x => {
+    const brow = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 6), whiskerMat);
+    brow.position.set(x, 2.5, 0.55);
+    brow.rotation.z = Math.PI / 2;
+    brow.rotation.y = -x * 0.6;
+    sealBody.add(brow);
+  });
+  // 鼻
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), darkMat);
+  nose.scale.set(1.2, 0.8, 0.8);
+  nose.position.set(0, 2.12, 0.655);
+  sealBody.add(nose);
+  // ω型の口(細いトーラスの下半分 ×2)
+  [-0.075, 0.075].forEach(x => {
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.013, 8, 14, Math.PI), darkMat);
+    arc.position.set(x, 2.02, 0.65);
+    arc.rotation.z = Math.PI;       // 弧を下向きに
+    arc.rotation.x = -0.25;         // 顔の丸みに沿わせる
+    sealBody.add(arc);
+  });
+  // ヒゲ:左右3本ずつ(画像のように外側へ垂れ下がる扇形。下の1本ほど大きく垂れる)
+  [-1, 1].forEach(side => {
+    for (let i = 0; i < 3; i++) {
+      const w = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.006, 0.42, 6), whiskerMat);
+      const fan = (i - 1) * 0.22;     // i=0:下段, i=1:中段, i=2:上段
+      w.position.set(side * 0.42, 2.16 + fan * 0.35, 0.5);
+      w.rotation.z = side * (Math.PI / 2 - 0.3) + fan * side;
+      w.rotation.y = side * 0.35;
+      sealBody.add(w);
+    }
+  });
+
+  // 両手(前ヒレ):肩を支点に動かせるようグループ化
+  const arms = [];
+  [-1, 1].forEach(side => {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(side * 0.6, 1.62, 0.08);
+    shoulder.userData.side = side;
+
+    const arm = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 12), sealSkinMat);
+    arm.scale.set(0.42, 1.15, 0.6);
+    arm.position.set(side * 0.05, -0.32, 0.02);
+    arm.castShadow = true;
+    shoulder.add(arm);
+
+    shoulder.rotation.z = side * 0.28;  // 体に沿って軽く開く
+    sealBody.add(shoulder);
+    arms.push(shoulder);
+  });
+
+  sealBody.position.y = BODY_BASE_Y;
+  seal.add(sealBody);
+
+  // 長い脚 ×2(どっしりした太さ。股関節で回転させて走らせる)
+  // 付け根は胴体の内側(BODY_BASE_Y+0.25)に埋め込み、回転の支点に球体ジョイントを
+  // 置くことで、走り・ジャンプ・転倒のどの姿勢でも胴体との間に隙間ができない
+  const legs = [];
+  [-0.34, 0.34].forEach(x => {
+    const hip = new THREE.Group();
+    hip.position.set(x, BODY_BASE_Y + 0.25, 0);
+
+    // 股関節の球体ジョイント(脚がどの角度でも付け根を覆う)
+    const joint = new THREE.Mesh(new THREE.SphereGeometry(0.29, 14, 12), legSkinMat);
+    joint.castShadow = true;
+    hip.add(joint);
+
+    // 太ももは支点より上(胴体内部)まで伸ばして埋め込む
+    const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.21, 2.1, 16), legSkinMat);
+    thigh.position.y = -0.95;
+    thigh.castShadow = true;
+    hip.add(thigh);
+
+    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.27, 14, 12), legSkinMat);
+    foot.scale.set(1, 0.5, 1.7);
+    foot.position.set(0, -2.03, 0.18);
+    foot.castShadow = true;
+    hip.add(foot);
+
+    seal.add(hip);
+    legs.push(hip);
+  });
+
+  // 向きはメインループで制御:メニュー中はカメラの方(正面)、プレイ中は進行方向を向く
+  let sealYaw = 0;
+  seal.rotation.y = sealYaw;
+  seal.position.set(0, 0, 4);
+  scene.add(seal);
+
+  // ---------- 障害物(氷塊・つらら) ----------
+  // 雪原(明るい白)との対比が出るよう、濃い青系ではっきりした色にする
+  const iceMat = new THREE.MeshPhysicalMaterial({
+    color: 0x1f6e9e, roughness: 0.18, metalness: 0,
+    clearcoat: 1, clearcoatRoughness: 0.15, flatShading: true
+  });
+  const iceMat2 = new THREE.MeshPhysicalMaterial({
+    color: 0x3e93c4, roughness: 0.2, metalness: 0,
+    clearcoat: 1, clearcoatRoughness: 0.15, flatShading: true
+  });
+  const iceBaseMat = new THREE.MeshStandardMaterial({ color: 0x144a6b, roughness: 0.7 });
+  const obstacles = [];
+  const obstaclePool = [];
+
+  function makeIceBlock() {
+    const g = new THREE.Group();
+    const type = Math.random();
+    if (type < 0.5) {
+      // ゴロゴロした氷塊
+      const n = 2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < n; i++) {
+        const r = 0.55 + Math.random() * 0.45;
+        const ice = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(r, 0),
+          Math.random() > 0.5 ? iceMat : iceMat2
+        );
+        ice.position.set((Math.random() - 0.5) * 0.9, r * 0.55, (Math.random() - 0.5) * 0.5);
+        ice.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+        ice.castShadow = true;
+        g.add(ice);
+      }
+    } else {
+      // 地面から突き出た氷柱の群れ
+      const n = 3 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n; i++) {
+        const h = 0.8 + Math.random() * 0.9;
+        const spike = new THREE.Mesh(
+          new THREE.ConeGeometry(0.22 + Math.random() * 0.15, h, 6),
+          Math.random() > 0.5 ? iceMat : iceMat2
+        );
+        spike.position.set((Math.random() - 0.5) * 1.3, h / 2, (Math.random() - 0.5) * 0.6);
+        spike.rotation.z = (Math.random() - 0.5) * 0.3;
+        spike.castShadow = true;
+        g.add(spike);
+      }
+    }
+    // 足元に濃い色のベースを敷き、接地位置をはっきりさせる
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.15, 1.3, 0.18, 14),
+      iceBaseMat
+    );
+    base.position.y = 0.09;
+    base.receiveShadow = true;
+    g.add(base);
+
+    g.userData.height = 1.4;     // 衝突判定用の高さ
+    g.userData.halfWidth = 1.25; // 衝突判定用の横幅(半分)
+    return g;
+  }
+
+  const LANES = [-3.2, 0, 3.2];
+
+  // ---------- アイテム:魚(取ると+50点) ----------
+  const FISH_BONUS = 50;
+  const fishMat = new THREE.MeshStandardMaterial({ color: 0xf4a93b, roughness: 0.35, metalness: 0.3 });
+  const fishFinMat = new THREE.MeshStandardMaterial({ color: 0xd97f1e, roughness: 0.4, metalness: 0.25 });
+  const fishes = [];
+  const fishPool = [];
+  let fishTimer = 0;
+
+  function makeFish() {
+    const g = new THREE.Group();
+
+    const fBody = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 12), fishMat);
+    fBody.scale.set(0.65, 0.8, 1.4);
+    fBody.castShadow = true;
+    g.add(fBody);
+
+    const fTail = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.36, 4), fishFinMat);
+    fTail.scale.set(0.4, 1, 1.4);
+    fTail.rotation.x = -Math.PI / 2;     // 尾の先端を後ろへ
+    fTail.position.set(0, 0, -0.56);
+    g.add(fTail);
+
+    const fFin = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.22, 4), fishFinMat);
+    fFin.scale.set(0.4, 1, 1.3);
+    fFin.position.set(0, 0.3, -0.05);
+    g.add(fFin);
+
+    [-0.14, 0.14].forEach(x => {
+      const fEye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), darkMat);
+      fEye.position.set(x, 0.06, 0.32);
+      g.add(fEye);
+    });
+
+    return g;
+  }
+
+  function spawnFishLine() {
+    // どれか1レーンに3〜5匹を一列に並べる(横移動で取りに行く動機づけ)
+    const laneX = LANES[Math.floor(Math.random() * 3)] + (Math.random() - 0.5) * 1.0;
+    const n = 3 + Math.floor(Math.random() * 3);
+    const z0 = -(58 + Math.random() * 15);
+    for (let i = 0; i < n; i++) {
+      const f = fishPool.pop() || makeFish();
+      f.position.set(laneX, 0.6, z0 - i * 2.3);
+      f.userData.phase = Math.random() * Math.PI * 2;
+      scene.add(f);
+      fishes.push(f);
+    }
+  }
+
+  // ---------- 横から現れる普通のアザラシ ----------
+  const wildSealMat = new THREE.MeshStandardMaterial({ color: 0x5d6e7a, roughness: 0.6 });
+  const wildSealBellyMat = new THREE.MeshStandardMaterial({ color: 0xc6d2d9, roughness: 0.65 });
+  const wildSeals = [];
+  const wildSealPool = [];
+  let wildSealTimer = 0;
+
+  function makeWildSeal() {
+    const g = new THREE.Group();
+
+    const wBody = new THREE.Mesh(new THREE.SphereGeometry(0.72, 22, 16), wildSealMat);
+    wBody.scale.set(0.9, 0.72, 1.7);
+    wBody.position.y = 0.5;
+    wBody.castShadow = true;
+    g.add(wBody);
+
+    const wBelly = new THREE.Mesh(new THREE.SphereGeometry(0.6, 18, 14), wildSealBellyMat);
+    wBelly.scale.set(0.78, 0.6, 1.5);
+    wBelly.position.set(0, 0.36, 0.08);
+    g.add(wBelly);
+
+    const wHead = new THREE.Mesh(new THREE.SphereGeometry(0.45, 18, 14), wildSealMat);
+    wHead.position.set(0, 0.78, 1.05);
+    wHead.castShadow = true;
+    g.add(wHead);
+
+    const wMuzzle = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 12), wildSealBellyMat);
+    wMuzzle.scale.set(1, 0.75, 0.9);
+    wMuzzle.position.set(0, 0.68, 1.42);
+    g.add(wMuzzle);
+
+    const wNose = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), darkMat);
+    wNose.position.set(0, 0.76, 1.6);
+    g.add(wNose);
+
+    [-0.19, 0.19].forEach(x => {
+      const wEye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), darkMat);
+      wEye.position.set(x, 0.9, 1.4);
+      g.add(wEye);
+    });
+
+    const wTail = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10), wildSealMat);
+    wTail.scale.set(1.5, 0.3, 0.8);
+    wTail.position.set(0, 0.45, -1.25);
+    g.add(wTail);
+
+    [-1, 1].forEach(side => {
+      const wFlip = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 10), wildSealMat);
+      wFlip.scale.set(0.45, 0.18, 1);
+      wFlip.position.set(side * 0.62, 0.28, 0.45);
+      wFlip.rotation.z = side * 0.5;
+      g.add(wFlip);
+    });
+
+    return g;
+  }
+
+  function spawnWildSeal() {
+    const s = wildSealPool.pop() || makeWildSeal();
+    const dir = Math.random() > 0.5 ? 1 : -1;     // 1: 左→右, -1: 右→左
+    const crossSpeed = 4.5 + Math.random() * 3 + Math.min(4, elapsed * 0.1);
+
+    // プレイヤーのラインに到達した瞬間にコース内(targetX)を横切るよう、出現Zを逆算する
+    // 50%の確率でプレイヤーの現在位置を狙い、残りはコース内のランダムな位置へ
+    let targetX = Math.random() < 0.5
+      ? seal.position.x
+      : (Math.random() - 0.5) * 7;
+    targetX = Math.max(-X_LIMIT, Math.min(X_LIMIT, targetX));
+
+    const startX = -dir * (10 + Math.random() * 3);
+    const travelTime = Math.abs(targetX - startX) / crossSpeed;
+    // 走行速度は徐々に上がるため、平均速度(現在速度+加速分の半分)で距離を見積もる
+    const avgSpeed = speed + 0.225 * travelTime;
+    const spawnZ = seal.position.z - avgSpeed * travelTime;
+
+    s.userData.dir = dir;
+    s.userData.crossSpeed = crossSpeed;
+    s.position.set(startX, 0, spawnZ);
+    s.rotation.y = dir * Math.PI / 2;             // 進む向きに頭を向ける
+    scene.add(s);
+    wildSeals.push(s);
+  }
+
+  function spawnObstacle(z) {
+    // 3レーンのうち1〜2レーンに配置(必ず通り道は残す)
+    const laneCount = Math.random() < 0.35 ? 2 : 1;
+    const indices = [0, 1, 2].sort(() => Math.random() - 0.5).slice(0, laneCount);
+    indices.forEach(idx => {
+      const obs = obstaclePool.pop() || makeIceBlock();
+      obs.position.set(LANES[idx] + (Math.random() - 0.5) * 0.8, 0, z);
+      scene.add(obs);
+      obstacles.push(obs);
+    });
+  }
+
+  // ---------- 爆発エフェクト(衝突時) ----------
+  const EXPLOSION_LIFE = 0.85;
+  const expMats = [
+    new THREE.MeshBasicMaterial({ color: 0xff8c42 }),  // オレンジ
+    new THREE.MeshBasicMaterial({ color: 0xffd166 }),  // 黄
+    new THREE.MeshBasicMaterial({ color: 0xffffff }),  // 白
+    new THREE.MeshBasicMaterial({ color: 0xe55934 })   // 赤
+  ];
+  const expParticles = [];
+  const expPool = [];
+  const shockwaveMat = new THREE.MeshBasicMaterial({
+    color: 0xfff1d6, transparent: true, opacity: 0.85, side: THREE.DoubleSide
+  });
+  const shockwave = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.78, 32), shockwaveMat);
+  shockwave.rotation.x = -Math.PI / 2;
+  shockwave.visible = false;
+  scene.add(shockwave);
+  let shockwaveLife = -1;
+
+  function explode(x, y, z) {
+    for (let i = 0; i < 28; i++) {
+      const p = expPool.pop() || new THREE.Mesh(
+        new THREE.TetrahedronGeometry(0.16, 0),
+        expMats[Math.floor(Math.random() * expMats.length)]
+      );
+      p.material = expMats[Math.floor(Math.random() * expMats.length)];
+      p.position.set(x + (Math.random() - 0.5) * 0.6, y + (Math.random() - 0.5) * 0.8, z + (Math.random() - 0.5) * 0.6);
+      // 全方向+やや上向きに飛び散る
+      const theta = Math.random() * Math.PI * 2;
+      const up = Math.random() * 0.9 + 0.2;
+      const pow = 3.5 + Math.random() * 5.5;
+      p.userData.vel = new THREE.Vector3(Math.cos(theta), up, Math.sin(theta)).normalize().multiplyScalar(pow);
+      p.userData.spin = new THREE.Vector3(Math.random() * 12, Math.random() * 12, Math.random() * 12);
+      p.userData.life = 0;
+      p.userData.baseScale = 0.7 + Math.random() * 0.9;
+      p.scale.setScalar(p.userData.baseScale);
+      scene.add(p);
+      expParticles.push(p);
+    }
+    // 地面に広がる衝撃波リング
+    shockwave.position.set(x, 0.05, z);
+    shockwave.scale.setScalar(0.6);
+    shockwaveMat.opacity = 0.85;
+    shockwave.visible = true;
+    shockwaveLife = 0;
+  }
+
+  function updateExplosion(dt) {
+    for (let i = expParticles.length - 1; i >= 0; i--) {
+      const p = expParticles[i];
+      p.userData.life += dt;
+      const k = p.userData.life / EXPLOSION_LIFE;
+      p.position.addScaledVector(p.userData.vel, dt);
+      p.userData.vel.y -= 14 * dt;                 // 破片に重力
+      p.userData.vel.multiplyScalar(0.985);        // 空気抵抗
+      p.rotation.x += p.userData.spin.x * dt;
+      p.rotation.y += p.userData.spin.y * dt;
+      p.scale.setScalar(Math.max(0.001, p.userData.baseScale * (1 - k)));  // 縮みながら消える
+      if (k >= 1) {
+        scene.remove(p);
+        expParticles.splice(i, 1);
+        expPool.push(p);
+      }
+    }
+    if (shockwaveLife >= 0) {
+      shockwaveLife += dt;
+      const k = shockwaveLife / 0.5;
+      if (k >= 1) {
+        shockwave.visible = false;
+        shockwaveLife = -1;
+      } else {
+        shockwave.scale.setScalar(0.6 + k * 7);
+        shockwaveMat.opacity = 0.85 * (1 - k);
+      }
+    }
+  }
+
+  // ---------- ゲーム状態 ----------
+  const GROUND_Y = 0;
+  const GRAVITY = -38;          // 通常の重力
+  const GRAVITY_HOLD = -16;     // ボタン長押し中(上昇中のみ)の弱い重力
+  const JUMP_VEL = 12;          // ジャンプ初速(短押し=低いジャンプ)
+  const JUMP_MAX_HOLD = 0.2;    // 長押しが効く最大時間(秒)→ 高さの上限を決める
+  const SIDE_SPEED = 11;
+  const X_LIMIT = 4.6;
+
+  let running = false;
+  let dying = false;        // 転倒アニメーション中
+  let dieTime = 0;
+  let jumpHeld = false;     // ジャンプボタン押下中か
+  let jumpHoldTime = 0;     // 今回のジャンプで長押しが効いた時間
+  let lookTimer = -1;       // 振り向き演出の経過時間(-1: 非実行)
+  let nextLookScore = 500;  // 次に振り向くスコア
+  const LOOK_DURATION = 1.4;
+  const LOOK_ANGLE = Math.PI * 0.72;  // 振り向きのひねり角(約130度。180度は不自然)
+  let speed, score, velY, jumping, nextSpawnZ, elapsed;
+  const keys = { left: false, right: false };
+
+  function resetGame() {
+    obstacles.forEach(o => { scene.remove(o); obstaclePool.push(o); });
+    obstacles.length = 0;
+    wildSeals.forEach(s => { scene.remove(s); wildSealPool.push(s); });
+    wildSeals.length = 0;
+    wildSealTimer = 3;
+    fishes.forEach(f => { scene.remove(f); fishPool.push(f); });
+    fishes.length = 0;
+    fishTimer = 1.5;
+    expParticles.forEach(p => { scene.remove(p); expPool.push(p); });
+    expParticles.length = 0;
+    shockwave.visible = false;
+    shockwaveLife = -1;
+    speed = 14;
+    score = 0;
+    elapsed = 0;
+    velY = 0;
+    jumping = false;
+    dying = false;
+    dieTime = 0;
+    seal.position.set(0, GROUND_Y, 4);
+    seal.rotation.x = 0;
+    seal.rotation.z = 0;
+    sealBody.rotation.x = 0;
+    sealBody.rotation.y = 0;
+    lookTimer = -1;
+    nextLookScore = 500;
+    nextSpawnZ = -40;
+    for (let z = -40; z > -90; z -= 18 + Math.random() * 10) {
+      spawnObstacle(z);
+      nextSpawnZ = z;
+    }
+    hud.textContent = 'SCORE 0';
+  }
+
+  function startGame() {
+    resetGame();
+    startScreen.classList.add('hidden');
+    gameoverScreen.classList.add('hidden');
+    running = true;
+  }
+
+  // 衝突 → 爆発エフェクト+転倒アニメーションを再生し、終わったら結果画面を表示する
+  function gameOver() {
+    running = false;
+    dying = true;
+    dieTime = 0;
+    explode(seal.position.x, seal.position.y + 1.8, seal.position.z - 0.6);
+  }
+
+  function showGameOverScreen() {
+    dying = false;
+    finalScoreEl.textContent = Math.floor(score);
+    gameoverScreen.classList.remove('hidden');
+    setupHiscoreUI();
+  }
+
+  // ---------- ハイスコアUI ----------
+  const hiscoreArea = document.getElementById('hiscore-area');
+  const playerNameInput = document.getElementById('player-name');
+  const submitBtn = document.getElementById('submit-score-btn');
+  const submitStatus = document.getElementById('submit-status');
+  const leaderboardEl = document.getElementById('leaderboard');
+  let scoreSubmitted = false;
+  let lastPlayerName = '';      // 同セッション内で名前を引き継ぐ
+
+  function renderLeaderboard(rows) {
+    leaderboardEl.innerHTML = '';
+    if (!rows.length) {
+      const li = document.createElement('li');
+      li.textContent = 'まだ記録がありません。一番乗りを目指そう!';
+      leaderboardEl.appendChild(li);
+      return;
+    }
+    rows.forEach((row, i) => {
+      const li = document.createElement('li');
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'lb-name';
+      nameSpan.textContent = (i + 1) + '位 ' + row.name;   // textContentでXSSを防ぐ
+      const scoreSpan = document.createElement('span');
+      scoreSpan.className = 'lb-score';
+      scoreSpan.textContent = row.score;
+      li.appendChild(nameSpan);
+      li.appendChild(scoreSpan);
+      leaderboardEl.appendChild(li);
+    });
+  }
+
+  async function refreshLeaderboard() {
+    try {
+      renderLeaderboard(await fetchLeaderboard());
+    } catch (err) {
+      submitStatus.textContent = 'ランキングの取得に失敗しました';
+      console.error(err);
+    }
+  }
+
+  function setupHiscoreUI() {
+    if (!hiscoreEnabled()) {
+      hiscoreArea.classList.add('hidden');
+      return;
+    }
+    hiscoreArea.classList.remove('hidden');
+    scoreSubmitted = false;
+    submitBtn.disabled = false;
+    submitStatus.textContent = '';
+    playerNameInput.value = lastPlayerName;
+    refreshLeaderboard();
+  }
+
+  async function handleSubmitScore() {
+    if (scoreSubmitted) return;
+    const name = playerNameInput.value.trim().slice(0, 12) || 'ななしのアザラシ';
+    lastPlayerName = name;
+    scoreSubmitted = true;
+    submitBtn.disabled = true;
+    submitStatus.textContent = '登録中…';
+    try {
+      await submitScore(name, Math.floor(score));
+      submitStatus.textContent = '登録しました!';
+      await refreshLeaderboard();
+    } catch (err) {
+      submitStatus.textContent = '登録に失敗しました。通信環境を確認してください';
+      scoreSubmitted = false;
+      submitBtn.disabled = false;
+      console.error(err);
+    }
+  }
+
+  submitBtn.addEventListener('click', handleSubmitScore);
+  playerNameInput.addEventListener('keydown', e => {
+    e.stopPropagation();                       // 入力中のスペース等でゲームが反応しないように
+    if (e.key === 'Enter') handleSubmitScore();
+  });
+
+  function jump() {
+    if (!running) return;
+    if (!jumping) {
+      jumping = true;
+      velY = JUMP_VEL;
+      jumpHoldTime = 0;
+    }
+  }
+
+  // ---------- 入力 ----------
+  addEventListener('keydown', e => {
+    if (e.target && e.target.tagName === 'INPUT') return;   // 名前入力中はゲーム操作を無効化
+    if (e.code === 'ArrowLeft')  { e.preventDefault(); keys.left = true; }
+    if (e.code === 'ArrowRight') { e.preventDefault(); keys.right = true; }
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      if (e.repeat) return;          // 押しっぱなしのリピートで連続ジャンプしない
+      jumpHeld = true;
+      if (running) jump();
+      else if (!dying) startGame();
+    }
+  });
+  addEventListener('keyup', e => {
+    if (e.code === 'ArrowLeft')  keys.left = false;
+    if (e.code === 'ArrowRight') keys.right = false;
+    if (e.code === 'Space' || e.code === 'ArrowUp') jumpHeld = false;
+  });
+  renderer.domElement.addEventListener('pointerdown', () => { jumpHeld = true; jump(); });
+  addEventListener('pointerup', () => { jumpHeld = false; });
+  addEventListener('pointercancel', () => { jumpHeld = false; });
+  document.getElementById('start-btn').addEventListener('click', startGame);
+  document.getElementById('retry-btn').addEventListener('click', startGame);
+
+  // マウス操作:ポインターの位置(地面上のX座標)に向かってアザラシが移動する
+  const raycaster = new THREE.Raycaster();
+  const pointerNdc = new THREE.Vector2();
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const groundHit = new THREE.Vector3();
+  let pointerTargetX = null;          // nullの間はキーボード操作のみ
+
+  addEventListener('pointermove', e => {
+    pointerNdc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    raycaster.setFromCamera(pointerNdc, camera);
+    if (raycaster.ray.intersectPlane(groundPlane, groundHit)) {
+      pointerTargetX = Math.max(-X_LIMIT, Math.min(X_LIMIT, groundHit.x));
+    }
+  });
+
+  // ---------- メインループ ----------
+  const clock = new THREE.Clock();
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const t = clock.elapsedTime;
+
+    // 雪を降らせる(常時)
+    const pos = snow.geometry.attributes.position;
+    for (let i = 0; i < snowCount; i++) {
+      pos.array[i * 3 + 1] -= dt * 2.2;
+      if (pos.array[i * 3 + 1] < 0) pos.array[i * 3 + 1] = 25;
+    }
+    pos.needsUpdate = true;
+
+    // 爆発エフェクトの更新(状態を問わず再生)
+    updateExplosion(dt);
+
+    // 向きの補間:プレイ・転倒中は進行方向(奥)、メニュー中はカメラの方(正面)
+    const targetYaw = (running || dying) ? Math.PI : 0;
+    sealYaw += (targetYaw - sealYaw) * Math.min(1, dt * 4);
+    seal.rotation.y = sealYaw;
+
+    if (running) {
+      elapsed += dt;
+      speed = 14 + elapsed * 0.45;          // 徐々に加速
+      score += dt * 10;                      // 時間経過で加点
+      hud.textContent = 'SCORE ' + Math.floor(score);
+
+      // 左右移動:矢印キー優先、入力がなければマウス位置へ追従
+      // (ジャンプ中は空中なので左右に動けない)
+      let moveX = 0;
+      if (!jumping) {
+        const kdir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+        moveX = kdir * SIDE_SPEED * dt;
+        if (kdir === 0 && pointerTargetX !== null) {
+          const d = pointerTargetX - seal.position.x;
+          if (Math.abs(d) > 0.04) {
+            moveX = Math.sign(d) * Math.min(Math.abs(d), SIDE_SPEED * dt);
+          }
+        }
+        seal.position.x += moveX;
+        seal.position.x = Math.max(-X_LIMIT, Math.min(X_LIMIT, seal.position.x));
+      }
+      // 移動方向へ体を傾ける(空中では自然に戻る)
+      const tiltDir = SIDE_SPEED * dt > 0 ? Math.max(-1, Math.min(1, moveX / (SIDE_SPEED * dt))) : 0;
+      seal.rotation.z += ((tiltDir * 0.18) - seal.rotation.z) * Math.min(1, dt * 10);
+
+      // ジャンプ物理:上昇中にボタンを押し続けている間だけ重力を弱め、
+      // 押す長さでジャンプの高さが変わる(JUMP_MAX_HOLD で上限)
+      if (jumping) {
+        let g = GRAVITY;
+        if (jumpHeld && velY > 0 && jumpHoldTime < JUMP_MAX_HOLD) {
+          g = GRAVITY_HOLD;
+          jumpHoldTime += dt;
+        }
+        velY += g * dt;
+        seal.position.y += velY * dt;
+        if (seal.position.y <= GROUND_Y) {
+          seal.position.y = GROUND_Y;
+          velY = 0;
+          jumping = false;
+        }
+      }
+
+      // 障害物を手前へ流す
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const o = obstacles[i];
+        o.position.z += speed * dt;
+
+        // 衝突判定(前後・左右に近く、かつ低空のとき)
+        const dz = Math.abs(o.position.z - seal.position.z);
+        const dx = Math.abs(o.position.x - seal.position.x);
+        if (dz < 1.1 && dx < o.userData.halfWidth && seal.position.y < o.userData.height) {
+          gameOver();
+        }
+
+        if (o.position.z > 15) {
+          scene.remove(o);
+          obstacles.splice(i, 1);
+          obstaclePool.push(o);
+        }
+      }
+
+      // 新しい障害物の補充
+      nextSpawnZ += speed * dt;
+      if (nextSpawnZ > -40) {
+        const gap = Math.max(13, 19 - elapsed * 0.15) + Math.random() * 9;
+        spawnObstacle(nextSpawnZ - gap - 50);
+        nextSpawnZ = nextSpawnZ - gap;
+      }
+
+      // 野生アザラシの出現(数秒おき)
+      wildSealTimer -= dt;
+      if (wildSealTimer <= 0) {
+        spawnWildSeal();
+        wildSealTimer = Math.max(2.5, 6 - elapsed * 0.08) + Math.random() * 2;
+      }
+
+      // 魚の出現(数秒おきに一列)
+      fishTimer -= dt;
+      if (fishTimer <= 0) {
+        spawnFishLine();
+        fishTimer = 2.2 + Math.random() * 2;
+      }
+
+      // 魚:ゆらゆら泳ぎながら流れてくる。触れると+50点
+      for (let i = fishes.length - 1; i >= 0; i--) {
+        const f = fishes[i];
+        f.position.z += speed * dt;
+        f.position.y = 0.6 + Math.sin(t * 4 + f.userData.phase) * 0.12;
+        f.rotation.y = Math.PI + Math.sin(t * 5 + f.userData.phase) * 0.3;
+        f.rotation.z = Math.sin(t * 6 + f.userData.phase) * 0.15;
+
+        const dz = Math.abs(f.position.z - seal.position.z);
+        const dx = Math.abs(f.position.x - seal.position.x);
+        if (dz < 1.1 && dx < 1.0 && seal.position.y < 1.4) {
+          score += FISH_BONUS;
+          bonusEl.textContent = '+' + FISH_BONUS;
+          bonusEl.classList.remove('pop');
+          void bonusEl.offsetWidth;          // アニメーションを再トリガー
+          bonusEl.classList.add('pop');
+          scene.remove(f);
+          fishes.splice(i, 1);
+          fishPool.push(f);
+          continue;
+        }
+
+        if (f.position.z > 15) {
+          scene.remove(f);
+          fishes.splice(i, 1);
+          fishPool.push(f);
+        }
+      }
+
+      // 野生アザラシ:奥から流れつつ、腹ばいで横切る
+      for (let i = wildSeals.length - 1; i >= 0; i--) {
+        const s = wildSeals[i];
+        s.position.z += speed * dt;
+        s.position.x += s.userData.dir * s.userData.crossSpeed * dt;
+        s.rotation.z = Math.sin(t * 9 + i) * 0.07;          // 体を揺らして滑る
+        s.position.y = Math.abs(Math.sin(t * 9 + i)) * 0.04;
+
+        const dz = Math.abs(s.position.z - seal.position.z);
+        const dx = Math.abs(s.position.x - seal.position.x);
+        if (dz < 1.2 && dx < 1.1 && seal.position.y < 1.1) {
+          gameOver();
+        }
+
+        if (s.position.z > 15 || Math.abs(s.position.x) > 13) {
+          scene.remove(s);
+          wildSeals.splice(i, 1);
+          wildSealPool.push(s);
+        }
+      }
+
+      // 雪の縞をスクロール
+      stripes.forEach(s => {
+        s.position.z += speed * dt;
+        if (s.position.z > 16) s.position.z -= 14 * 8;
+      });
+
+      // 走りアニメーション
+      const runPhase = t * 11;
+      legs[0].rotation.x = Math.sin(runPhase) * 0.85;
+      legs[1].rotation.x = Math.sin(runPhase + Math.PI) * 0.85;
+      // 腕は脚と逆位相で振る
+      arms[0].rotation.x = Math.sin(runPhase + Math.PI) * 0.55;
+      arms[1].rotation.x = Math.sin(runPhase) * 0.55;
+      if (!jumping) {
+        arms.forEach(a => { a.rotation.z = a.userData.side * 0.28; });
+        sealBody.position.y = BODY_BASE_Y + Math.abs(Math.sin(runPhase)) * 0.12;
+        sealBody.rotation.x = Math.sin(runPhase * 2) * 0.03;
+      } else {
+        // 空中ポーズ:脚を前後に伸ばし、両手をバンザイ
+        legs[0].rotation.x = 0.9;
+        legs[1].rotation.x = -0.6;
+        arms.forEach(a => {
+          a.rotation.x = 0;
+          a.rotation.z = a.userData.side * 2.5;
+        });
+        sealBody.position.y = BODY_BASE_Y;
+        sealBody.rotation.x = -0.15;
+      }
+
+      // スコア500ごとの振り向き演出:走りながら肩越しにこちらをチラ見して手を振る
+      // (180度回転は不自然なので、約130度のひねり+軽く首をかしげる動きに)
+      if (score >= nextLookScore) {
+        lookTimer = 0;
+        nextLookScore += 500;
+      }
+      if (lookTimer >= 0) {
+        lookTimer += dt;
+        // 0.35秒で振り向き → 保持 → 最後の0.35秒で戻る
+        let k;
+        if (lookTimer < 0.35) k = lookTimer / 0.35;
+        else if (lookTimer < LOOK_DURATION - 0.35) k = 1;
+        else k = Math.max(0, (LOOK_DURATION - lookTimer) / 0.35);
+        const ease = k * k * (3 - 2 * k);   // smoothstep
+        sealBody.rotation.y = LOOK_ANGLE * ease;          // 右肩越しに約130度ひねる
+        sealBody.rotation.z = -0.13 * ease;               // カメラ側へ軽く首をかしげる
+        // 振り向いている間、カメラ側の手を振る
+        if (k > 0.85) {
+          arms[1].rotation.x = 0;
+          arms[1].rotation.z = arms[1].userData.side * (2.0 + Math.sin(t * 16) * 0.45);
+        }
+        if (lookTimer >= LOOK_DURATION) {
+          lookTimer = -1;
+          sealBody.rotation.y = 0;
+          sealBody.rotation.z = 0;
+        }
+      } else {
+        sealBody.rotation.y = 0;
+        sealBody.rotation.z = 0;
+      }
+    } else if (dying) {
+      // 転倒アニメーション:つまずいて前にバタンと倒れる
+      dieTime += dt;
+      const k = Math.min(1, dieTime / 0.65);
+      const ease = 1 - (1 - k) * (1 - k);           // 後半ほど勢いよく
+      seal.rotation.x = -ease * Math.PI / 2 * 0.93; // 足元を支点に前へ倒れる
+      seal.position.y = Math.sin(Math.min(k, 0.5) * Math.PI) * 0.35 * (1 - k); // つまずきの小さな浮き
+      // 手足をバタつかせ、倒れきったら投げ出す
+      const flail = Math.sin(dieTime * 18) * (1 - ease) * 0.7;
+      legs[0].rotation.x = 1.0 * ease + flail;
+      legs[1].rotation.x = -0.8 * ease - flail;
+      arms.forEach(a => {
+        a.rotation.x = -1.2 * ease + flail * a.userData.side;
+        a.rotation.z = a.userData.side * (0.28 + 1.6 * ease);
+      });
+      sealBody.rotation.x = 0;
+      sealBody.rotation.y *= 0.85;   // 振り向き途中で衝突しても自然に戻す
+      sealBody.rotation.z *= 0.85;
+      sealBody.position.y = BODY_BASE_Y;
+      // 倒れたあと少し間を置いて結果画面へ
+      if (dieTime > 1.5) showGameOverScreen();
+    } else {
+      // 待機中:倒れていたら起き上がり、ゆったり呼吸
+      seal.rotation.x += (0 - seal.rotation.x) * Math.min(1, dt * 5);
+      seal.position.y += (GROUND_Y - seal.position.y) * Math.min(1, dt * 5);
+      sealBody.position.y = BODY_BASE_Y + Math.sin(t * 2) * 0.05;
+      sealBody.scale.y = 1 + Math.sin(t * 2) * 0.012;
+      sealBody.rotation.x *= 0.9;
+      sealBody.rotation.y *= 0.9;
+      sealBody.rotation.z *= 0.9;
+      legs[0].rotation.x = Math.sin(t * 1.5) * 0.08;
+      legs[1].rotation.x = -Math.sin(t * 1.5) * 0.08;
+      arms.forEach(a => {
+        a.rotation.x += (0 - a.rotation.x) * Math.min(1, dt * 5);
+        a.rotation.z += (a.userData.side * 0.28 - a.rotation.z) * Math.min(1, dt * 5);
+      });
+      seal.rotation.z *= 0.95;
+    }
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
