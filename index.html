@@ -53,6 +53,32 @@
     100% { opacity: 0; transform: translateY(-26px); }
   }
 
+  /* タッチデバイス用の操作ボタン(マウス環境では非表示) */
+  #touch-controls { display: none; }
+  .tc-btn {
+    position: absolute; bottom: 26px;
+    width: 76px; height: 76px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; color: #fff;
+    background: rgba(22, 67, 94, .38);
+    border: 2px solid rgba(255,255,255,.5);
+    user-select: none; -webkit-user-select: none;
+    touch-action: none; -webkit-tap-highlight-color: transparent;
+  }
+  .tc-btn:active { background: rgba(22, 67, 94, .6); }
+  #tc-left  { left: 22px; }
+  #tc-right { left: 112px; }
+  #tc-jump  {
+    right: 22px; width: 96px; height: 96px;
+    font-size: 17px; font-weight: bold; letter-spacing: 1px;
+    background: rgba(231, 111, 81, .6);
+  }
+  #tc-jump:active { background: rgba(231, 111, 81, .85); }
+  @media (pointer: coarse) {
+    #touch-controls { display: block; }
+    #hint { bottom: 132px; font-size: 14px; }
+  }
+
   /* ハイスコア登録・ランキング */
   #hiscore-area {
     width: min(340px, 86vw);
@@ -99,6 +125,12 @@
   <div id="bonus">+50</div>
   <div id="hint">マウス移動:左右 / クリック:ジャンプ(長押しで大ジャンプ)</div>
 
+  <div id="touch-controls">
+    <div class="tc-btn" id="tc-left">◀</div>
+    <div class="tc-btn" id="tc-right">▶</div>
+    <div class="tc-btn" id="tc-jump">ジャンプ</div>
+  </div>
+
   <div id="start-screen" class="overlay">
     <h1>あしながアザラシ・ラン<br>〜南極編〜</h1>
     <p>長い脚が生えてしまったアザラシが南極の氷原を爆走中。<br>氷塊や仲間のアザラシをよけて、魚を集めながら走り続けよう!</p>
@@ -126,9 +158,17 @@
 (() => {
   // ========== ハイスコア設定(Supabase) ==========
   // デプロイ時にここを書き換える。未設定のままでもゲームは動作する(ランキング非表示)。
-  // SUPABASE_URL: ダッシュボードの Settings > API > Project URL(例: 'https://xxxx.supabase.co')
-  // SUPABASE_PUBLISHABLE_KEY: Settings > API Keys > Publishable key('sb_publishable_...' 形式)
-  //   ※クライアント公開前提のキー。レガシーの anon キー('eyJ...' 形式)を貼っても動作する
+  //
+  // 取得方法(いちばん簡単): ダッシュボード上部の「Connect」ボタンを押すと、
+  //   Project URL と Publishable key の両方をまとめてコピーできる。
+  //
+  // 個別に探す場合:
+  //   SUPABASE_URL: Project Settings > Data API の「Project URL」
+  //     (https://<プロジェクトID>.supabase.co 形式。プロジェクトIDは
+  //      ダッシュボードのアドレス supabase.com/dashboard/project/<ここ> と同じ)
+  //   SUPABASE_PUBLISHABLE_KEY: Project Settings > API Keys の「Publishable key」
+  //     ('sb_publishable_...' 形式。クライアント公開前提のキー。
+  //      レガシーの anon キー('eyJ...' 形式)を貼っても動作する)
   const SUPABASE_URL = 'https://rlyqjzdlnnxobzbsmhcv.supabase.co';
   const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_2o7HWIuWMp25VPZtHcX2DQ_YTSXDgdw';
 
@@ -512,18 +552,78 @@
     return g;
   }
 
+  // 魚を置いてよい位置か(すべての障害物から十分離れているか)
+  // ※障害物も魚もスポーン後は同じ速度で流れるため、位置関係はスポーン時のまま
+  //   変わらない。よってスポーン時のチェックだけで重なりを完全に防げる。
+  function isFishSpotClear(x, z) {
+    for (const o of obstacles) {
+      if (Math.abs(o.position.z - z) < 3.0 && Math.abs(o.position.x - x) < 2.4) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function placeFish(x, z) {
+    const f = fishPool.pop() || makeFish();
+    f.position.set(x, 0.6, z);
+    f.userData.phase = Math.random() * Math.PI * 2;
+    scene.add(f);
+    fishes.push(f);
+  }
+
+  // パターン1:どれか1レーンに3〜5匹を一列に並べる(横移動で取りに行く動機づけ)
   function spawnFishLine() {
-    // どれか1レーンに3〜5匹を一列に並べる(横移動で取りに行く動機づけ)
-    const laneX = LANES[Math.floor(Math.random() * 3)] + (Math.random() - 0.5) * 1.0;
     const n = 3 + Math.floor(Math.random() * 3);
     const z0 = -(58 + Math.random() * 15);
-    for (let i = 0; i < n; i++) {
-      const f = fishPool.pop() || makeFish();
-      f.position.set(laneX, 0.6, z0 - i * 2.3);
-      f.userData.phase = Math.random() * Math.PI * 2;
-      scene.add(f);
-      fishes.push(f);
+    const laneOrder = [0, 1, 2].sort(() => Math.random() - 0.5);
+
+    for (const li of laneOrder) {
+      const laneX = LANES[li] + (Math.random() - 0.5) * 1.0;
+      let clear = true;
+      for (let i = 0; i < n && clear; i++) {
+        clear = isFishSpotClear(laneX, z0 - i * 2.3);
+      }
+      if (!clear) continue;
+      for (let i = 0; i < n; i++) placeFish(laneX, z0 - i * 2.3);
+      return true;
     }
+    return false;  // どのレーンも塞がっていた
+  }
+
+  // パターン2:障害物の前後に魚を並べる(障害物をよけながら/飛び越えながら取るご褒美)
+  function spawnFishAroundObstacle() {
+    // 反応時間が確保できる奥の障害物から候補を選ぶ
+    const candidates = obstacles.filter(o =>
+      o.position.z < -45 && Math.abs(o.position.x) < X_LIMIT
+    );
+    if (!candidates.length) return false;
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    const x = target.position.x;
+    const z = target.position.z;
+
+    // 障害物の手前2匹+奥2匹(dz=3.2/5.5は重なりマージン3.0の外側)
+    const offsets = [3.2, 5.5, -3.2, -5.5];
+    let placed = 0;
+    offsets.forEach(dz => {
+      const fz = z + dz;
+      if (isFishSpotClear(x, fz)) {   // 別の障害物と被る位置だけ間引く
+        placeFish(x, fz);
+        placed++;
+      }
+    });
+    return placed > 0;
+  }
+
+  function spawnFish() {
+    // 4割で障害物前後パターン、それ以外は通常の一列。
+    // 失敗(適地なし)した場合はもう一方のパターンを試す。
+    if (Math.random() < 0.4) {
+      if (!spawnFishAroundObstacle()) spawnFishLine();
+    } else {
+      if (!spawnFishLine()) spawnFishAroundObstacle();
+    }
+    // 両方失敗した場合は出現させない(次の周期で再試行される)
   }
 
   // ---------- 横から現れる普通のアザラシ ----------
@@ -881,11 +981,39 @@
     if (e.code === 'ArrowRight') keys.right = false;
     if (e.code === 'Space' || e.code === 'ArrowUp') jumpHeld = false;
   });
-  renderer.domElement.addEventListener('pointerdown', () => { jumpHeld = true; jump(); });
+  renderer.domElement.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'touch') return;   // タッチは専用ボタンで操作(誤タップ防止)
+    jumpHeld = true;
+    jump();
+  });
   addEventListener('pointerup', () => { jumpHeld = false; });
   addEventListener('pointercancel', () => { jumpHeld = false; });
   document.getElementById('start-btn').addEventListener('click', startGame);
   document.getElementById('retry-btn').addEventListener('click', startGame);
+
+  // タッチデバイス用の操作ボタン(押している間だけ有効。既存のkeys/jumpHeldを共用)
+  function bindHoldButton(el, onDown, onUp) {
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      onDown();
+    });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev =>
+      el.addEventListener(ev, onUp)
+    );
+    el.addEventListener('contextmenu', e => e.preventDefault());  // 長押しメニュー抑止
+  }
+  bindHoldButton(document.getElementById('tc-left'),
+    () => { keys.left = true; },  () => { keys.left = false; });
+  bindHoldButton(document.getElementById('tc-right'),
+    () => { keys.right = true; }, () => { keys.right = false; });
+  bindHoldButton(document.getElementById('tc-jump'),
+    () => { jumpHeld = true; jump(); }, () => { jumpHeld = false; });
+
+  // タッチデバイスでは案内文を差し替える
+  if (matchMedia('(pointer: coarse)').matches) {
+    document.getElementById('hint').textContent = '◀ ▶:移動 / ジャンプ:長押しで大ジャンプ';
+  }
 
   // マウス操作:ポインターの位置(地面上のX座標)に向かってアザラシが移動する
   const raycaster = new THREE.Raycaster();
@@ -895,6 +1023,7 @@
   let pointerTargetX = null;          // nullの間はキーボード操作のみ
 
   addEventListener('pointermove', e => {
+    if (e.pointerType === 'touch') return;   // タッチのなぞり操作では追従しない
     pointerNdc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     raycaster.setFromCamera(pointerNdc, camera);
     if (raycaster.ray.intersectPlane(groundPlane, groundHit)) {
@@ -1002,10 +1131,10 @@
         wildSealTimer = Math.max(2.5, 6 - elapsed * 0.08) + Math.random() * 2;
       }
 
-      // 魚の出現(数秒おきに一列)
+      // 魚の出現(数秒おきに一列 or 障害物前後パターン)
       fishTimer -= dt;
       if (fishTimer <= 0) {
-        spawnFishLine();
+        spawnFish();
         fishTimer = 2.2 + Math.random() * 2;
       }
 
